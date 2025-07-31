@@ -6,13 +6,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Badge } from '../components/ui/badge';
 import { Progress } from '../components/ui/progress';
 import { useToast } from '../hooks/use-toast';
-import { mockData } from '../data/mock';
 import { ArrowLeft, CheckCircle, XCircle, Trophy, Target } from 'lucide-react';
+import axios from 'axios';
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
 
 const QuizPage = () => {
   const { levelId, lessonId } = useParams();
   const navigate = useNavigate();
-  const { user, updateUserProgress } = useAuth();
+  const { user, submitQuizResults } = useAuth();
   const { toast } = useToast();
   
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -21,23 +24,56 @@ const QuizPage = () => {
   const [score, setScore] = useState(0);
   const [answers, setAnswers] = useState([]);
   const [quizCompleted, setQuizCompleted] = useState(false);
-
-  const lesson = mockData.lessons[levelId]?.find(l => l.id === lessonId);
-  const level = mockData.difficultyLevels.find(l => l.id === levelId);
-  const quiz = mockData.quizzes[lessonId] || [];
+  const [lesson, setLesson] = useState(null);
+  const [quiz, setQuiz] = useState(null);
+  const [levels, setLevels] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!lesson || !level || quiz.length === 0) {
-      navigate('/dashboard');
-    }
-  }, [lesson, level, quiz, navigate]);
+    fetchQuizData();
+  }, [lessonId]);
 
-  if (!lesson || !level || quiz.length === 0) {
-    return null;
+  const fetchQuizData = async () => {
+    try {
+      const [lessonResponse, quizResponse, levelsResponse] = await Promise.all([
+        axios.get(`${API}/lessons/${lessonId}`),
+        axios.get(`${API}/lessons/${lessonId}/quiz`),
+        axios.get(`${API}/levels`)
+      ]);
+      
+      setLesson(lessonResponse.data);
+      setQuiz(quizResponse.data);
+      setLevels(levelsResponse.data);
+    } catch (error) {
+      console.error('Failed to fetch quiz data:', error);
+      navigate('/dashboard');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      </div>
+    );
   }
 
-  const currentQuestion = quiz[currentQuestionIndex];
-  const progress = ((currentQuestionIndex + 1) / quiz.length) * 100;
+  if (!lesson || !quiz || quiz.questions.length === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">Quiz not found</h2>
+          <Button onClick={() => navigate('/dashboard')}>Back to Dashboard</Button>
+        </div>
+      </div>
+    );
+  }
+
+  const level = levels.find(l => l.id === levelId);
+  const currentQuestion = quiz.questions[currentQuestionIndex];
+  const progress = ((currentQuestionIndex + 1) / quiz.questions.length) * 100;
 
   const handleAnswerSelect = (answerIndex) => {
     setSelectedAnswer(answerIndex);
@@ -61,7 +97,7 @@ const QuizPage = () => {
   };
 
   const handleNextQuestion = () => {
-    if (currentQuestionIndex < quiz.length - 1) {
+    if (currentQuestionIndex < quiz.questions.length - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1);
       setSelectedAnswer(null);
       setShowResult(false);
@@ -70,34 +106,25 @@ const QuizPage = () => {
     }
   };
 
-  const completeQuiz = () => {
+  const completeQuiz = async () => {
     const finalScore = score + (selectedAnswer === currentQuestion.correct ? 1 : 0);
-    const percentage = (finalScore / quiz.length) * 100;
+    const allAnswers = [...answers, {
+      questionId: currentQuestion.id,
+      selected: selectedAnswer,
+      correct: currentQuestion.correct,
+      isCorrect: selectedAnswer === currentQuestion.correct
+    }];
+
+    const result = await submitQuizResults(lessonId, allAnswers, finalScore, quiz.questions.length);
     
-    let bonusPoints = 0;
-    let newAchievements = [];
-
-    // Award points based on performance
-    if (percentage >= 90) {
-      bonusPoints = 150;
-    } else if (percentage >= 70) {
-      bonusPoints = 100;
-    } else if (percentage >= 50) {
-      bonusPoints = 50;
+    if (result) {
+      toast({
+        title: "Quiz Completed!",
+        description: `You scored ${finalScore}/${quiz.questions.length} and earned ${result.bonusPoints} points!`,
+      });
     }
 
-    // Check for achievements
-    if (percentage === 100) {
-      newAchievements.push('perfect_score');
-    }
-
-    updateUserProgress(`quiz-${lessonId}`, bonusPoints, newAchievements);
     setQuizCompleted(true);
-
-    toast({
-      title: "Quiz Completed!",
-      description: `You scored ${finalScore}/${quiz.length} and earned ${bonusPoints} points!`,
-    });
   };
 
   const getScoreColor = (percentage) => {
@@ -109,7 +136,7 @@ const QuizPage = () => {
 
   if (quizCompleted) {
     const finalScore = answers.filter(a => a.isCorrect).length;
-    const percentage = (finalScore / quiz.length) * 100;
+    const percentage = (finalScore / quiz.questions.length) * 100;
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
@@ -124,7 +151,7 @@ const QuizPage = () => {
             <div className="grid grid-cols-3 gap-4">
               <div className="text-center">
                 <div className={`text-3xl font-bold ${getScoreColor(percentage)}`}>
-                  {finalScore}/{quiz.length}
+                  {finalScore}/{quiz.questions.length}
                 </div>
                 <div className="text-sm text-gray-500">Correct Answers</div>
               </div>
@@ -205,9 +232,11 @@ const QuizPage = () => {
         {/* Quiz Header */}
         <div className="mb-8">
           <div className="flex items-center space-x-3 mb-4">
-            <Badge className={`bg-gradient-to-r ${level.color} text-white`}>
-              {level.name}
-            </Badge>
+            {level && (
+              <Badge className={`bg-gradient-to-r ${level.color} text-white`}>
+                {level.name}
+              </Badge>
+            )}
             <Badge variant="outline">Quiz</Badge>
           </div>
           
@@ -216,7 +245,7 @@ const QuizPage = () => {
           
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-500">
-              Question {currentQuestionIndex + 1} of {quiz.length}
+              Question {currentQuestionIndex + 1} of {quiz.questions.length}
             </span>
             <span className="text-sm text-gray-500">
               Score: {score}/{currentQuestionIndex + (showResult && selectedAnswer === currentQuestion.correct ? 1 : 0)}
@@ -304,7 +333,7 @@ const QuizPage = () => {
               onClick={handleNextQuestion}
               className="bg-blue-600 hover:bg-blue-700 px-8"
             >
-              {currentQuestionIndex === quiz.length - 1 ? 'Complete Quiz' : 'Next Question'}
+              {currentQuestionIndex === quiz.questions.length - 1 ? 'Complete Quiz' : 'Next Question'}
             </Button>
           )}
         </div>
