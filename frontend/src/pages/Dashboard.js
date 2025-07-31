@@ -1,36 +1,82 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Progress } from '../components/ui/progress';
 import { useNavigate } from 'react-router-dom';
-import { mockData } from '../data/mock';
 import { BookOpen, Trophy, Flame, Star, LogOut, User } from 'lucide-react';
+import axios from 'axios';
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
 
 const Dashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [levels, setLevels] = useState([]);
+  const [achievements, setAchievements] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleLevelClick = (levelId) => {
-    const firstLesson = mockData.lessons[levelId]?.[0];
-    if (firstLesson) {
-      navigate(`/lesson/${levelId}/${firstLesson.id}`);
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    try {
+      const [levelsResponse, achievementsResponse] = await Promise.all([
+        axios.get(`${API}/levels`),
+        axios.get(`${API}/achievements`)
+      ]);
+      
+      setLevels(levelsResponse.data);
+      setAchievements(achievementsResponse.data);
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLevelClick = async (levelId) => {
+    try {
+      const response = await axios.get(`${API}/levels/${levelId}/lessons`);
+      const lessons = response.data;
+      if (lessons.length > 0) {
+        navigate(`/lesson/${levelId}/${lessons[0].id}`);
+      }
+    } catch (error) {
+      console.error('Failed to fetch lessons:', error);
     }
   };
 
   const getCompletedLessonsForLevel = (levelId) => {
-    const levelLessons = mockData.lessons[levelId] || [];
-    return levelLessons.filter(lesson => 
-      user.completedLessons.includes(lesson.id)
-    ).length;
+    if (!user) return 0;
+    // This would ideally come from the stats API, but for now we'll estimate
+    return user.completedLessons.filter(lessonId => lessonId.startsWith(levelId)).length;
   };
 
-  const getProgressPercentage = (levelId) => {
-    const levelLessons = mockData.lessons[levelId] || [];
-    const completed = getCompletedLessonsForLevel(levelId);
-    return levelLessons.length > 0 ? (completed / levelLessons.length) * 100 : 0;
+  const getProgressPercentage = (level) => {
+    const completed = getCompletedLessonsForLevel(level.id);
+    return level.totalLessons > 0 ? (completed / level.totalLessons) * 100 : 0;
   };
+
+  const getUserAchievements = () => {
+    if (!user || !achievements) return [];
+    return user.achievements.map(achievementId => 
+      achievements.find(a => a.id === achievementId)
+    ).filter(Boolean);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  const userAchievements = getUserAchievements();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -45,7 +91,7 @@ const Dashboard = () => {
             <div className="flex items-center space-x-4">
               <Button variant="ghost" onClick={() => navigate('/profile')} className="flex items-center space-x-2">
                 <User className="h-4 w-4" />
-                <span>{user.firstName}</span>
+                <span>{user?.firstName}</span>
               </Button>
               <Button variant="outline" onClick={logout} className="flex items-center space-x-2">
                 <LogOut className="h-4 w-4" />
@@ -60,7 +106,7 @@ const Dashboard = () => {
         {/* Welcome Section */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome back, {user.firstName}! 👋
+            Welcome back, {user?.firstName}! 👋
           </h1>
           <p className="text-gray-600">Ready to enhance your business English skills today?</p>
         </div>
@@ -72,7 +118,7 @@ const Dashboard = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-blue-100 text-sm">Total Points</p>
-                  <p className="text-3xl font-bold">{user.points}</p>
+                  <p className="text-3xl font-bold">{user?.points || 0}</p>
                 </div>
                 <Trophy className="h-8 w-8 text-blue-200" />
               </div>
@@ -84,7 +130,7 @@ const Dashboard = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-orange-100 text-sm">Streak</p>
-                  <p className="text-3xl font-bold">{user.streak} days</p>
+                  <p className="text-3xl font-bold">{user?.streak || 0} days</p>
                 </div>
                 <Flame className="h-8 w-8 text-orange-200" />
               </div>
@@ -96,7 +142,7 @@ const Dashboard = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-green-100 text-sm">Completed</p>
-                  <p className="text-3xl font-bold">{user.completedLessons.length}</p>
+                  <p className="text-3xl font-bold">{user?.completedLessons?.length || 0}</p>
                 </div>
                 <BookOpen className="h-8 w-8 text-green-200" />
               </div>
@@ -108,7 +154,7 @@ const Dashboard = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-purple-100 text-sm">Achievements</p>
-                  <p className="text-3xl font-bold">{user.achievements.length}</p>
+                  <p className="text-3xl font-bold">{user?.achievements?.length || 0}</p>
                 </div>
                 <Star className="h-8 w-8 text-purple-200" />
               </div>
@@ -120,10 +166,9 @@ const Dashboard = () => {
         <div className="mb-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Choose Your Level</h2>
           <div className="grid md:grid-cols-3 gap-6">
-            {mockData.difficultyLevels.map((level, index) => {
-              const progress = getProgressPercentage(level.id);
+            {levels.map((level, index) => {
+              const progress = getProgressPercentage(level);
               const completed = getCompletedLessonsForLevel(level.id);
-              const total = mockData.lessons[level.id]?.length || 0;
               
               return (
                 <Card 
@@ -135,7 +180,7 @@ const Dashboard = () => {
                   <CardHeader className="relative">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-3xl">{level.icon}</span>
-                      <Badge variant="secondary">{completed}/{total} lessons</Badge>
+                      <Badge variant="secondary">{completed}/{level.totalLessons} lessons</Badge>
                     </div>
                     <CardTitle className="text-xl">{level.name}</CardTitle>
                   </CardHeader>
@@ -162,29 +207,24 @@ const Dashboard = () => {
         </div>
 
         {/* Recent Achievements */}
-        {user.achievements.length > 0 && (
+        {userAchievements.length > 0 && (
           <div>
             <h2 className="text-2xl font-bold text-gray-900 mb-6">Recent Achievements</h2>
             <div className="grid md:grid-cols-3 gap-4">
-              {user.achievements.slice(-3).map((achievementId) => {
-                const achievement = mockData.achievements.find(a => a.id === achievementId);
-                if (!achievement) return null;
-                
-                return (
-                  <Card key={achievement.id} className="bg-gradient-to-r from-yellow-50 to-orange-50 border-yellow-200">
-                    <CardContent className="p-4">
-                      <div className="flex items-center space-x-3">
-                        <span className="text-2xl">{achievement.icon}</span>
-                        <div>
-                          <h3 className="font-semibold text-gray-900">{achievement.name}</h3>
-                          <p className="text-sm text-gray-600">{achievement.description}</p>
-                          <p className="text-xs text-orange-600 font-medium">+{achievement.points} points</p>
-                        </div>
+              {userAchievements.slice(-3).map((achievement) => (
+                <Card key={achievement.id} className="bg-gradient-to-r from-yellow-50 to-orange-50 border-yellow-200">
+                  <CardContent className="p-4">
+                    <div className="flex items-center space-x-3">
+                      <span className="text-2xl">{achievement.icon}</span>
+                      <div>
+                        <h3 className="font-semibold text-gray-900">{achievement.name}</h3>
+                        <p className="text-sm text-gray-600">{achievement.description}</p>
+                        <p className="text-xs text-orange-600 font-medium">+{achievement.points} points</p>
                       </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           </div>
         )}
