@@ -35,7 +35,7 @@ async def close_mongo_connection():
 
 async def create_indexes():
     """Create database indexes for better performance"""
-    if db.database:
+    if db.database is not None:
         # User indexes
         await db.database.users.create_index("email", unique=True)
         
@@ -51,7 +51,7 @@ async def create_indexes():
 
 async def seed_initial_data():
     """Seed database with initial content"""
-    if not db.database:
+    if db.database is None:
         return
     
     # Check if data already exists
