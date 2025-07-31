@@ -1,12 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Progress } from '../components/ui/progress';
-import { mockData } from '../data/mock';
 import { ArrowLeft, ArrowRight, BookOpen, Trophy, Volume2 } from 'lucide-react';
+import axios from 'axios';
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
 
 const LessonPage = () => {
   const { levelId, lessonId } = useParams();
@@ -15,11 +18,39 @@ const LessonPage = () => {
   
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showDefinition, setShowDefinition] = useState(false);
+  const [lesson, setLesson] = useState(null);
+  const [levels, setLevels] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const lesson = mockData.lessons[levelId]?.find(l => l.id === lessonId);
-  const level = mockData.difficultyLevels.find(l => l.id === levelId);
+  useEffect(() => {
+    fetchLessonData();
+  }, [lessonId]);
 
-  if (!lesson || !level) {
+  const fetchLessonData = async () => {
+    try {
+      const [lessonResponse, levelsResponse] = await Promise.all([
+        axios.get(`${API}/lessons/${lessonId}`),
+        axios.get(`${API}/levels`)
+      ]);
+      
+      setLesson(lessonResponse.data);
+      setLevels(levelsResponse.data);
+    } catch (error) {
+      console.error('Failed to fetch lesson data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (!lesson) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -30,6 +61,7 @@ const LessonPage = () => {
     );
   }
 
+  const level = levels.find(l => l.id === levelId);
   const vocabulary = lesson.content.vocabulary;
   const currentItem = vocabulary[currentIndex];
   const progress = ((currentIndex + 1) / vocabulary.length) * 100;
@@ -51,7 +83,7 @@ const LessonPage = () => {
     }
   };
 
-  const completeLesson = () => {
+  const completeLesson = async () => {
     if (!user.completedLessons.includes(lessonId)) {
       const newAchievements = [];
       
@@ -60,8 +92,12 @@ const LessonPage = () => {
         newAchievements.push('first_lesson');
       }
       
-      updateUserProgress(lessonId, lesson.points, newAchievements);
+      await updateUserProgress(lessonId, lesson.points, newAchievements);
     }
+    navigate(`/quiz/${levelId}/${lessonId}`);
+  };
+
+  const goToQuiz = () => {
     navigate(`/quiz/${levelId}/${lessonId}`);
   };
 
@@ -87,9 +123,17 @@ const LessonPage = () => {
               <ArrowLeft className="h-4 w-4" />
               <span>Back to Dashboard</span>
             </Button>
-            <div className="flex items-center space-x-2">
-              <BookOpen className="h-6 w-6 text-blue-600" />
-              <span className="font-semibold text-gray-900">{lesson.title}</span>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <BookOpen className="h-6 w-6 text-blue-600" />
+                <span className="font-semibold text-gray-900">{lesson.title}</span>
+              </div>
+              <Button 
+                onClick={goToQuiz}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                Take Quiz
+              </Button>
             </div>
           </div>
         </div>
@@ -99,9 +143,11 @@ const LessonPage = () => {
         {/* Lesson Header */}
         <div className="mb-8">
           <div className="flex items-center space-x-3 mb-4">
-            <Badge className={`bg-gradient-to-r ${level.color} text-white`}>
-              {level.name}
-            </Badge>
+            {level && (
+              <Badge className={`bg-gradient-to-r ${level.color} text-white`}>
+                {level.name}
+              </Badge>
+            )}
             <Badge variant="outline">
               {lesson.type.replace('_', ' ').toUpperCase()}
             </Badge>
